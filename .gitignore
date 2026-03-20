@@ -35,3 +35,8 @@ Logcat.txt
 captures/
 .externalNativeBuild/
 .cxx/
+
+# Keep only committed project skills visible by default
+skills/*
+!skills/cliptune-change-guard/
+!skills/cliptune-change-guard/**
