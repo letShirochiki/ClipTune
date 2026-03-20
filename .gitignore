@@ -1,0 +1,38 @@
+# Android / Gradle build outputs
+.gradle/
+build/
+**/build/
+app/release/
+
+# Local IDE and machine-specific files
+.idea/
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+.vscode/
+.gradle-tmp/
+local.properties
+*.iml
+
+# Logs and crash dumps
+*.log
+*.hprof
+hs_err_pid*
+replay_pid*
+Logcat.txt
+
+# Packaged artifacts
+*.apk
+*.aab
+*.ap_
+
+# Misc
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+skills/

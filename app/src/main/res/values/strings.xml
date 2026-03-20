@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ClipTune</string>
+
+    <string name="tab_source_library">原始文件</string>
+    <string name="tab_extracted_library">提取文件</string>
+
+    <string name="source_directory_label">原始视频目录</string>
+    <string name="output_directory_label">提取输出目录</string>
+    <string name="directory_panel_title">目录设置</string>
+    <string name="directory_not_selected">未选择目录</string>
+    <string name="source_directory_summary">原始目录：%1$s</string>
+    <string name="output_directory_summary">输出目录：%1$s</string>
+    <string name="expand_directory">展开</string>
+    <string name="collapse_directory">收起</string>
+    <string name="select_source_directory">选择原始目录</string>
+    <string name="select_output_directory">选择输出目录</string>
+    <string name="refresh_library">刷新文件库</string>
+    <string name="refreshing_library">正在刷新文件库...</string>
+
+    <string name="source_list_empty">原始文件列表为空，请先授权并扫描目录。</string>
+    <string name="extracted_list_empty">提取文件列表为空，请先提取音轨或刷新输出目录。</string>
+    <string name="file_meta_line">大小：%1$s  时长：%2$s</string>
+
+    <string name="play_file">播放</string>
+    <string name="delete_file">删除</string>
+    <string name="extract_to_mp3">提取 MP3</string>
+    <string name="extract_original_audio">提取原音轨</string>
+    <string name="extracting_audio_progress">正在提取音轨...</string>
+
+    <string name="player_panel_title">内置播放器</string>
+    <string name="full_player_title">播放器</string>
+    <string name="close_full_player">关闭全屏</string>
+    <string name="no_playing_file">当前未播放文件</string>
+    <string name="player_time_line">%1$s / %2$s</string>
+    <string name="previous_track">上一首</string>
+    <string name="next_track">下一首</string>
+    <string name="start_playback">播放</string>
+    <string name="pause_playback">暂停</string>
+    <string name="stop_playback">停止</string>
+    <string name="player_progress_label">播放进度</string>
+    <string name="player_volume_label">音量调节</string>
+    <string name="volume_control">音量控制</string>
+    <string name="background_playback_still_available">后台播放仍可用，可在通知栏继续控制。</string>
+    <string name="open_full_player_hint">点击迷你播放器可进入全屏页面</string>
+    <string name="video_not_available">当前内容没有可显示的视频画面</string>
+
+    <string name="repeat_mode_line">循环模式：%1$s</string>
+    <string name="repeat_mode_off">不循环</string>
+    <string name="repeat_mode_one">单曲循环</string>
+    <string name="repeat_mode_all">列表循环</string>
+    <string name="switch_repeat_mode">切换循环</string>
+
+    <string name="sleep_timer_title">定时关闭</string>
+    <string name="sleep_timer_not_set">未设置定时关闭</string>
+    <string name="sleep_timer_running">剩余时间：%1$s</string>
+    <string name="sleep_timer_15m">15 分钟</string>
+    <string name="sleep_timer_30m">30 分钟</string>
+    <string name="sleep_timer_60m">60 分钟</string>
+    <string name="sleep_timer_custom_minutes">自定义分钟</string>
+    <string name="sleep_timer_start">开始定时</string>
+    <string name="sleep_timer_cancel">取消定时关闭</string>
+
+    <string name="dismiss_message">关闭</string>
+</resources>
