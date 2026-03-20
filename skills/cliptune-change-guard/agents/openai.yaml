@@ -1,0 +1,4 @@
+interface:
+  display_name: "ClipTune Change Guard"
+  short_description: "Repeatable post-change checks for ClipTune quality and build."
+  default_prompt: "Validate the current ClipTune workspace after code changes by running quick checks first, then full build checks when needed, and summarize pass/fail with next actions."
