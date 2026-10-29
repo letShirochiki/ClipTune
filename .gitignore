@@ -45,3 +45,6 @@ skills/*
 
 # WorkBuddy 本地项目记忆，只留在本机
 .workbuddy/
+
+# 签名凭据，只留在本机
+keystore.properties
