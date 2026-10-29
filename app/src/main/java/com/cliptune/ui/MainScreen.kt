@@ -28,6 +28,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -46,8 +48,6 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -62,7 +62,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -221,7 +221,11 @@ fun MainScreen(
             )
         }
 
-        TabRow(selectedTabIndex = if (currentTab == LibraryCategory.SOURCE) 0 else 1) {
+        SecondaryTabRow(
+            selectedTabIndex = if (currentTab == LibraryCategory.SOURCE) 0 else 1,
+            // 保持原来的无底色观感，新组件的默认容器色会多出一条色带
+            containerColor = Color.Transparent
+        ) {
             Tab(
                 selected = currentTab == LibraryCategory.SOURCE,
                 onClick = { currentTab = LibraryCategory.SOURCE },
@@ -293,7 +297,7 @@ fun MainScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(text = stringResource(R.string.extracting_audio_progress))
                         LinearProgressIndicator(
-                            progress = progress,
+                            progress = { progress },
                             modifier = Modifier.fillMaxWidth()
                         )
                         Text(text = "${(progress * 100).toInt()}%")
@@ -723,9 +727,9 @@ private fun ActiveMediaCard(
             ) {
                 Icon(
                     imageVector = if (playerUiState.volume <= 0.01f) {
-                        Icons.Filled.VolumeOff
+                        Icons.AutoMirrored.Filled.VolumeOff
                     } else {
-                        Icons.Filled.VolumeUp
+                        Icons.AutoMirrored.Filled.VolumeUp
                     },
                     contentDescription = stringResource(R.string.player_volume_label),
                     modifier = Modifier.size(18.dp),

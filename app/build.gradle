@@ -12,6 +12,9 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
 }
 
+// 命令行传入的架构过滤，例如 -PtargetAbis=arm64-v8a
+def targetAbis = (project.findProperty("targetAbis") ?: "").toString().trim()
+
 android {
     namespace "com.cliptune"
     compileSdk 36
@@ -20,12 +23,19 @@ android {
         applicationId "com.cliptune"
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary true
+        }
+
+        // 可选：加 -PtargetAbis=arm64-v8a 只打单一架构，默认全量
+        if (targetAbis) {
+            ndk {
+                abiFilters.addAll(targetAbis.split(","))
+            }
         }
     }
 
