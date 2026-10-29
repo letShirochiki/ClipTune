@@ -1,8 +1,13 @@
 ﻿package com.cliptune.ui
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,27 +19,54 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.Divider
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -46,22 +78,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.cliptune.R
 import com.cliptune.model.ConversionState
 import com.cliptune.model.DirectoryConfig
+import com.cliptune.model.DirectoryDisplay
 import com.cliptune.model.LibraryCategory
 import com.cliptune.model.LibraryMediaItem
+import com.cliptune.model.LibraryScanState
 import com.cliptune.model.PlaybackRepeatMode
 import com.cliptune.model.PlayerUiState
 import com.cliptune.viewmodel.MainViewModel
@@ -76,6 +116,8 @@ fun MainScreen(
     val directoryConfig by viewModel.directoryConfig.collectAsStateWithLifecycle()
     val sourceItems by viewModel.sourceItems.collectAsStateWithLifecycle()
     val extractedItems by viewModel.extractedItems.collectAsStateWithLifecycle()
+    val sourceScanState by viewModel.sourceScanState.collectAsStateWithLifecycle()
+    val outputScanState by viewModel.outputScanState.collectAsStateWithLifecycle()
     val conversionState by viewModel.conversionState.collectAsStateWithLifecycle()
     val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
     val playerUiState by viewModel.playerUiState.collectAsStateWithLifecycle()
@@ -87,6 +129,7 @@ fun MainScreen(
     var seekSliderProgress by remember { mutableFloatStateOf(0f) }
     var isUserSeeking by remember { mutableStateOf(false) }
     var customSleepMinutes by rememberSaveable { mutableStateOf("") }
+    var isSleepTimerDialogVisible by remember { mutableStateOf(false) }
 
     // TODO(Android9): 部分 Android 9 机型在 OpenDocumentTree 返回后闪退，需补充堆栈并增加兼容方案。
     val sourceDirLauncher =
@@ -114,246 +157,413 @@ fun MainScreen(
         }
     }
 
-    BackHandler(enabled = playerUiState.isFullPlayerVisible) {
+    BackHandler(enabled = isSleepTimerDialogVisible) {
+        isSleepTimerDialogVisible = false
+    }
+    // 全屏时返回键先退出全屏
+    BackHandler(enabled = playerUiState.isFullPlayerVisible && !isSleepTimerDialogVisible) {
         viewModel.closeFullPlayer()
     }
 
     val activeItems = if (currentTab == LibraryCategory.SOURCE) sourceItems else extractedItems
+    val activeScanState = if (currentTab == LibraryCategory.SOURCE) sourceScanState else outputScanState
 
-    Box(modifier = modifier.fillMaxSize()) {
-        Column(
+    val onSeekFinished = {
+        val duration = playerUiState.durationMs
+        if (duration > 0L) {
+            viewModel.seekTo((duration * seekSliderProgress).toLong())
+        }
+        isUserSeeking = false
+    }
+
+    if (playerUiState.isFullPlayerVisible) {
+        FullscreenPlayer(
+            modifier = modifier.fillMaxSize(),
+            playerUiState = playerUiState,
+            playerForUi = playerForUi,
+            seekSliderProgress = seekSliderProgress,
+            onSeekValueChange = {
+                isUserSeeking = true
+                seekSliderProgress = it
+            },
+            onSeekFinished = onSeekFinished,
+            onPrevious = { viewModel.seekToPrevious() },
+            onTogglePlayPause = { viewModel.togglePlayPause() },
+            onNext = { viewModel.seekToNext() },
+            onExit = { viewModel.closeFullPlayer() }
+        )
+        return
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        AppHeader(
+            directoryConfig = directoryConfig,
+            sourceScanState = sourceScanState,
+            outputScanState = outputScanState,
+            isExpanded = isDirectoryExpanded,
+            isSyncing = isSyncing,
+            onToggleDirectory = { isDirectoryExpanded = !isDirectoryExpanded },
+            onRefresh = { viewModel.refreshLibraries() }
+        )
+
+        if (isDirectoryExpanded) {
+            DirectoryPanel(
+                directoryConfig = directoryConfig,
+                sourceScanState = sourceScanState,
+                outputScanState = outputScanState,
+                onPickSource = { sourceDirLauncher.launch(null) },
+                onPickOutput = { outputDirLauncher.launch(null) }
+            )
+        }
+
+        TabRow(selectedTabIndex = if (currentTab == LibraryCategory.SOURCE) 0 else 1) {
+            Tab(
+                selected = currentTab == LibraryCategory.SOURCE,
+                onClick = { currentTab = LibraryCategory.SOURCE },
+                text = { Text(text = stringResource(R.string.tab_source_library)) }
+            )
+            Tab(
+                selected = currentTab == LibraryCategory.EXTRACTED,
+                onClick = { currentTab = LibraryCategory.EXTRACTED },
+                text = { Text(text = stringResource(R.string.tab_extracted_library)) }
+            )
+        }
+
+        LazyColumn(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .fillMaxWidth()
+                .weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 4.dp)
         ) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 8.dp)
-            ) {
+            if (activeItems.isEmpty()) {
                 item {
                     Text(
-                        text = stringResource(id = R.string.app_name),
-                        style = MaterialTheme.typography.headlineSmall
+                        text = libraryEmptyMessage(
+                            category = currentTab,
+                            scanState = activeScanState
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
+            } else {
+                items(activeItems, key = { it.uri }) { item ->
+                    val isActive = playerUiState.currentMediaUri == item.uri
 
-                item {
-                    DirectorySection(
-                        directoryConfig = directoryConfig,
-                        isExpanded = isDirectoryExpanded,
-                        isSyncing = isSyncing,
-                        onToggleExpand = { isDirectoryExpanded = !isDirectoryExpanded },
-                        onPickSource = { sourceDirLauncher.launch(null) },
-                        onPickOutput = { outputDirLauncher.launch(null) },
-                        onRefresh = { viewModel.refreshLibraries() }
-                    )
-                }
-
-                item {
-                    TabRow(selectedTabIndex = if (currentTab == LibraryCategory.SOURCE) 0 else 1) {
-                        Tab(
-                            selected = currentTab == LibraryCategory.SOURCE,
-                            onClick = { currentTab = LibraryCategory.SOURCE },
-                            text = { Text(text = stringResource(R.string.tab_source_library)) }
+                    if (isActive) {
+                        // 正在播放的条目就地变成播放器，控制按钮都收在这里
+                        ActiveMediaCard(
+                            playerUiState = playerUiState,
+                            playerForUi = playerForUi,
+                            seekSliderProgress = seekSliderProgress,
+                            onSeekValueChange = {
+                                isUserSeeking = true
+                                seekSliderProgress = it
+                            },
+                            onSeekFinished = onSeekFinished,
+                            onPrevious = { viewModel.seekToPrevious() },
+                            onTogglePlayPause = { viewModel.togglePlayPause() },
+                            onNext = { viewModel.seekToNext() },
+                            onStop = { viewModel.stopPlayback() },
+                            onVolumeChange = { viewModel.setVolume(it) },
+                            onCycleRepeatMode = { viewModel.cycleRepeatMode() },
+                            onOpenSleepTimer = { isSleepTimerDialogVisible = true },
+                            onToggleFullscreen = { viewModel.openFullPlayer() }
                         )
-                        Tab(
-                            selected = currentTab == LibraryCategory.EXTRACTED,
-                            onClick = { currentTab = LibraryCategory.EXTRACTED },
-                            text = { Text(text = stringResource(R.string.tab_extracted_library)) }
-                        )
-                    }
-                }
-
-                if (activeItems.isEmpty()) {
-                    item {
-                        Text(
-                            text = stringResource(
-                                if (currentTab == LibraryCategory.SOURCE) {
-                                    R.string.source_list_empty
-                                } else {
-                                    R.string.extracted_list_empty
-                                }
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                } else {
-                    items(activeItems, key = { it.uri }) { item ->
+                    } else {
                         MediaListItem(
                             item = item,
                             category = currentTab,
                             onPlay = { viewModel.playItem(currentTab, item.uri) },
                             onDelete = { viewModel.deleteMediaItem(item) },
-                            onExtractMp3 = { viewModel.extractToMp3(item) },
-                            onExtractOriginal = { viewModel.extractOriginalAudio(item) }
-                        )
-                    }
-                }
-
-                if (conversionState is ConversionState.Converting) {
-                    item {
-                        val progress = (conversionState as ConversionState.Converting).progress
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(text = stringResource(R.string.extracting_audio_progress))
-                            LinearProgressIndicator(
-                                progress = progress,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Text(text = "${(progress * 100).toInt()}%")
-                        }
-                    }
-                }
-
-                if (uiMessage != null) {
-                    item {
-                        MessageSection(
-                            message = uiMessage.orEmpty(),
-                            onDismiss = { viewModel.clearMessage() }
+                            onExtractMp3 = { viewModel.extractToMp3(item) }
                         )
                     }
                 }
             }
 
-            MiniPlayerBar(
-                modifier = Modifier.fillMaxWidth(),
-                playerUiState = playerUiState,
-                onTogglePlayPause = { viewModel.togglePlayPause() },
-                onNext = { viewModel.seekToNext() },
-                onCycleRepeatMode = { viewModel.cycleRepeatMode() },
-                onOpenFullPlayer = { viewModel.openFullPlayer() }
-            )
-        }
-
-        if (playerUiState.isFullPlayerVisible) {
-            FullPlayerOverlay(
-                modifier = Modifier.fillMaxSize(),
-                playerUiState = playerUiState,
-                playerForUi = playerForUi,
-                seekSliderProgress = seekSliderProgress,
-                customSleepMinutes = customSleepMinutes,
-                onCustomSleepMinutesChange = { input ->
-                    customSleepMinutes = input.filter { it.isDigit() }.take(4)
-                },
-                onSeekValueChange = {
-                    isUserSeeking = true
-                    seekSliderProgress = it
-                },
-                onSeekFinished = {
-                    val duration = playerUiState.durationMs
-                    if (duration > 0L) {
-                        viewModel.seekTo((duration * seekSliderProgress).toLong())
+            if (conversionState is ConversionState.Converting) {
+                item {
+                    val progress = (conversionState as ConversionState.Converting).progress
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(text = stringResource(R.string.extracting_audio_progress))
+                        LinearProgressIndicator(
+                            progress = progress,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(text = "${(progress * 100).toInt()}%")
                     }
-                    isUserSeeking = false
-                },
-                onPrevious = { viewModel.seekToPrevious() },
-                onTogglePlayPause = { viewModel.togglePlayPause() },
-                onNext = { viewModel.seekToNext() },
-                onStop = { viewModel.stopPlayback() },
-                onVolumeChange = { viewModel.setVolume(it) },
-                onCycleRepeatMode = { viewModel.cycleRepeatMode() },
-                onStartSleepTimer = { minutes -> viewModel.startSleepTimer(minutes) },
-                onCancelSleepTimer = { viewModel.cancelSleepTimer() },
-                onClose = { viewModel.closeFullPlayer() }
-            )
-        }
-    }
-}
+                }
+            }
 
-@Composable
-private fun MiniPlayerBar(
-    modifier: Modifier = Modifier,
-    playerUiState: PlayerUiState,
-    onTogglePlayPause: () -> Unit,
-    onNext: () -> Unit,
-    onCycleRepeatMode: () -> Unit,
-    onOpenFullPlayer: () -> Unit
-) {
-    Card(
-        modifier = modifier.clickable(
-            enabled = playerUiState.connected || playerUiState.currentTitle.isNotBlank(),
-            onClick = onOpenFullPlayer
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = if (playerUiState.currentTitle.isNotBlank()) {
-                    playerUiState.currentTitle
-                } else {
-                    stringResource(R.string.no_playing_file)
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleSmall
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Button(
-                    onClick = onTogglePlayPause,
-                    enabled = playerUiState.connected,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = if (playerUiState.isPlaying) {
-                            stringResource(R.string.pause_playback)
-                        } else {
-                            stringResource(R.string.start_playback)
-                        }
+            if (uiMessage != null) {
+                item {
+                    MessageSection(
+                        message = uiMessage.orEmpty(),
+                        onDismiss = { viewModel.clearMessage() }
                     )
                 }
-                OutlinedButton(
-                    onClick = onNext,
-                    enabled = playerUiState.canSkipNext,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(text = stringResource(R.string.next_track))
-                }
-                OutlinedButton(
-                    onClick = onCycleRepeatMode,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(text = repeatModeLabel(playerUiState.repeatMode))
-                }
             }
+        }
+    }
 
-            val timerText = if (playerUiState.isSleepTimerRunning) {
-                stringResource(
-                    R.string.sleep_timer_running,
-                    formatCountdown(playerUiState.sleepTimerRemainingMs)
-                )
-            } else {
-                stringResource(R.string.sleep_timer_not_set)
-            }
+    if (isSleepTimerDialogVisible) {
+        SleepTimerDialog(
+            playerUiState = playerUiState,
+            customMinutes = customSleepMinutes,
+            onCustomMinutesChange = { input ->
+                customSleepMinutes = input.filter { it.isDigit() }.take(4)
+            },
+            onStartTimer = { minutes ->
+                viewModel.startSleepTimer(minutes)
+                isSleepTimerDialogVisible = false
+            },
+            onCancelTimer = { viewModel.cancelSleepTimer() },
+            onDismiss = { isSleepTimerDialogVisible = false }
+        )
+    }
+}
+
+/** 顶部标题 + 目录状态 + 目录/刷新两个图标操作 */
+@Composable
+private fun AppHeader(
+    directoryConfig: DirectoryConfig,
+    sourceScanState: LibraryScanState,
+    outputScanState: LibraryScanState,
+    isExpanded: Boolean,
+    isSyncing: Boolean,
+    onToggleDirectory: () -> Unit,
+    onRefresh: () -> Unit
+) {
+    val notSelected = stringResource(R.string.directory_not_selected)
+    val sourceName = DirectoryDisplay.nameOf(directoryConfig.sourceTreeUri) ?: notSelected
+    val outputName = DirectoryDisplay.nameOf(directoryConfig.outputTreeUri) ?: notSelected
+    val summary = stringResource(
+        R.string.header_directory_line,
+        sourceName + scanSuffix(sourceScanState),
+        outputName + scanSuffix(outputScanState)
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = timerText,
-                style = MaterialTheme.typography.bodySmall
+                text = stringResource(R.string.app_name),
+                style = MaterialTheme.typography.headlineSmall
             )
             Text(
-                text = stringResource(R.string.open_full_player_hint),
-                style = MaterialTheme.typography.bodySmall
+                text = summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        if (isSyncing) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+        }
+
+        CompactIconButton(
+            icon = Icons.Filled.FolderOpen,
+            contentDescription = stringResource(R.string.expand_directory_panel),
+            onClick = onToggleDirectory,
+            tint = if (isExpanded) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                LocalContentColor.current
+            }
+        )
+        CompactIconButton(
+            icon = Icons.Filled.Refresh,
+            contentDescription = stringResource(R.string.refresh_library),
+            onClick = onRefresh
+        )
+    }
+}
+
+@Composable
+private fun scanSuffix(scanState: LibraryScanState): String {
+    return when (scanState) {
+        is LibraryScanState.Ready -> if (scanState.itemCount > 0) {
+            stringResource(R.string.scan_count_suffix, scanState.itemCount)
+        } else {
+            ""
+        }
+
+        is LibraryScanState.Failed -> stringResource(R.string.scan_unreadable_suffix)
+        LibraryScanState.NoDirectory -> ""
+    }
+}
+
+/** 展开后的目录设置：每行一个目录 + 一个“换目录”图标，底部保留安卓 11 的选目录说明 */
+@Composable
+private fun DirectoryPanel(
+    directoryConfig: DirectoryConfig,
+    sourceScanState: LibraryScanState,
+    outputScanState: LibraryScanState,
+    onPickSource: () -> Unit,
+    onPickOutput: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            DirectoryRow(
+                icon = Icons.Filled.VideoLibrary,
+                label = stringResource(R.string.source_directory_label),
+                treeUri = directoryConfig.sourceTreeUri,
+                scanState = sourceScanState,
+                actionDescription = stringResource(R.string.select_source_directory),
+                onAction = onPickSource
+            )
+            DirectoryRow(
+                icon = Icons.Filled.LibraryMusic,
+                label = stringResource(R.string.output_directory_label),
+                treeUri = directoryConfig.outputTreeUri,
+                scanState = outputScanState,
+                actionDescription = stringResource(R.string.select_output_directory),
+                onAction = onPickOutput
+            )
+            Text(
+                text = stringResource(R.string.directory_picker_scope_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
 }
 
 @Composable
-private fun FullPlayerOverlay(
-    modifier: Modifier = Modifier,
+private fun DirectoryRow(
+    icon: ImageVector,
+    label: String,
+    treeUri: String?,
+    scanState: LibraryScanState,
+    actionDescription: String,
+    onAction: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = DirectoryDisplay.nameOf(treeUri)
+                    ?: stringResource(R.string.directory_not_selected),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (scanState is LibraryScanState.Failed) {
+                Text(
+                    text = stringResource(R.string.scan_status_failed, scanState.message),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+        CompactIconButton(
+            icon = Icons.Filled.FolderOpen,
+            contentDescription = actionDescription,
+            onClick = onAction,
+            tint = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+/**
+ * 空闲列表项：左边文件名与信息，右边图标操作。
+ * 从 MP3 和“原音轨”两个按钮收敛成一个：两者听起来几乎没区别，留一个更清楚。
+ */
+@Composable
+private fun MediaListItem(
+    item: LibraryMediaItem,
+    category: LibraryCategory,
+    onPlay: () -> Unit,
+    onDelete: () -> Unit,
+    onExtractMp3: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.displayName,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = stringResource(
+                        R.string.file_meta_line,
+                        formatFileSize(item.sizeBytes),
+                        formatDuration(item.durationMs)
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (category == LibraryCategory.SOURCE) {
+                CompactIconButton(
+                    icon = Icons.Filled.MusicNote,
+                    contentDescription = stringResource(R.string.extract_to_mp3),
+                    onClick = onExtractMp3
+                )
+            }
+            CompactIconButton(
+                icon = Icons.Filled.PlayArrow,
+                contentDescription = stringResource(R.string.play_file),
+                onClick = onPlay,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            CompactIconButton(
+                icon = Icons.Filled.Delete,
+                contentDescription = stringResource(R.string.delete_file),
+                onClick = onDelete
+            )
+        }
+    }
+}
+
+/**
+ * 正在播放的列表项：就地展开成播放器。
+ * 视频画面 + 进度 + 一排控制图标（上一首/播放/下一首/停止/循环/定时/全屏）。
+ */
+@Composable
+private fun ActiveMediaCard(
     playerUiState: PlayerUiState,
     playerForUi: Player?,
     seekSliderProgress: Float,
-    customSleepMinutes: String,
-    onCustomSleepMinutesChange: (String) -> Unit,
     onSeekValueChange: (Float) -> Unit,
     onSeekFinished: () -> Unit,
     onPrevious: () -> Unit,
@@ -362,215 +572,350 @@ private fun FullPlayerOverlay(
     onStop: () -> Unit,
     onVolumeChange: (Float) -> Unit,
     onCycleRepeatMode: () -> Unit,
-    onStartSleepTimer: (Int) -> Unit,
-    onCancelSleepTimer: () -> Unit,
-    onClose: () -> Unit
+    onOpenSleepTimer: () -> Unit,
+    onToggleFullscreen: () -> Unit
 ) {
-    Surface(modifier = modifier, color = MaterialTheme.colorScheme.surface) {
+    Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.full_player_title),
-                    style = MaterialTheme.typography.titleMedium
+            if (playerUiState.canShowVideo) {
+                VideoSurface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f),
+                    playerUiState = playerUiState,
+                    playerForUi = playerForUi,
+                    onTogglePlayPause = onTogglePlayPause
                 )
-                OutlinedButton(onClick = onClose) {
-                    Text(text = stringResource(R.string.close_full_player))
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.LibraryMusic,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = stringResource(R.string.audio_only_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
-
-            VideoSection(
-                playerUiState = playerUiState,
-                playerForUi = playerForUi,
-                modifier = Modifier.fillMaxWidth()
-            )
 
             Text(
-                text = if (playerUiState.currentTitle.isNotBlank()) {
-                    playerUiState.currentTitle
-                } else {
-                    stringResource(R.string.no_playing_file)
-                },
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleSmall
+                text = playerUiState.currentTitle,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(
-                        R.string.repeat_mode_line,
-                        repeatModeLabel(playerUiState.repeatMode)
-                    ),
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodySmall
-                )
-                OutlinedButton(onClick = onCycleRepeatMode) {
-                    Text(text = stringResource(R.string.switch_repeat_mode))
-                }
-            }
 
             Slider(
                 value = seekSliderProgress,
                 onValueChange = onSeekValueChange,
                 onValueChangeFinished = onSeekFinished,
+                enabled = playerUiState.connected,
                 modifier = Modifier.fillMaxWidth()
             )
-            Text(
-                text = stringResource(
-                    R.string.player_time_line,
-                    formatDuration(playerUiState.positionMs),
-                    formatDuration(playerUiState.durationMs)
-                ),
-                style = MaterialTheme.typography.bodySmall
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = formatDuration(playerUiState.positionMs),
+                    style = MaterialTheme.typography.labelSmall
+                )
+                Text(
+                    text = formatDuration(playerUiState.durationMs),
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedButton(
+                CompactIconButton(
+                    icon = Icons.Filled.SkipPrevious,
+                    contentDescription = stringResource(R.string.previous_track),
                     onClick = onPrevious,
-                    modifier = Modifier.weight(1f),
-                    enabled = playerUiState.canSkipPrevious
-                ) {
-                    Text(text = stringResource(R.string.previous_track))
-                }
-                Button(
+                    enabled = playerUiState.canSkipPrevious,
+                    buttonSize = 42.dp,
+                    iconSize = 22.dp
+                )
+                FilledIconButton(
                     onClick = onTogglePlayPause,
-                    modifier = Modifier.weight(1f),
-                    enabled = playerUiState.connected
+                    enabled = playerUiState.connected,
+                    modifier = Modifier.size(46.dp)
                 ) {
-                    Text(
-                        text = if (playerUiState.isPlaying) {
+                    Icon(
+                        imageVector = if (playerUiState.isPlaying) {
+                            Icons.Filled.Pause
+                        } else {
+                            Icons.Filled.PlayArrow
+                        },
+                        contentDescription = if (playerUiState.isPlaying) {
                             stringResource(R.string.pause_playback)
                         } else {
                             stringResource(R.string.start_playback)
-                        }
+                        },
+                        modifier = Modifier.size(24.dp)
                     )
                 }
-                OutlinedButton(
+                CompactIconButton(
+                    icon = Icons.Filled.SkipNext,
+                    contentDescription = stringResource(R.string.next_track),
                     onClick = onNext,
-                    modifier = Modifier.weight(1f),
-                    enabled = playerUiState.canSkipNext
-                ) {
-                    Text(text = stringResource(R.string.next_track))
-                }
-                OutlinedButton(
+                    enabled = playerUiState.canSkipNext,
+                    buttonSize = 42.dp,
+                    iconSize = 22.dp
+                )
+                CompactIconButton(
+                    icon = Icons.Filled.Stop,
+                    contentDescription = stringResource(R.string.stop_playback),
                     onClick = onStop,
-                    modifier = Modifier.weight(1f),
-                    enabled = playerUiState.connected
-                ) {
-                    Text(text = stringResource(R.string.stop_playback))
-                }
+                    enabled = playerUiState.connected,
+                    buttonSize = 42.dp
+                )
+                CompactIconButton(
+                    icon = repeatModeIcon(playerUiState.repeatMode),
+                    contentDescription = stringResource(R.string.switch_repeat_mode),
+                    onClick = onCycleRepeatMode,
+                    buttonSize = 42.dp,
+                    tint = if (playerUiState.repeatMode == PlaybackRepeatMode.OFF) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    }
+                )
+                CompactIconButton(
+                    icon = Icons.Filled.Timer,
+                    contentDescription = stringResource(R.string.sleep_timer_title),
+                    onClick = onOpenSleepTimer,
+                    buttonSize = 42.dp,
+                    tint = if (playerUiState.isSleepTimerRunning) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        LocalContentColor.current
+                    }
+                )
+                CompactIconButton(
+                    icon = Icons.Filled.Fullscreen,
+                    contentDescription = stringResource(R.string.play_fullscreen),
+                    onClick = onToggleFullscreen,
+                    buttonSize = 42.dp
+                )
             }
 
-            Divider()
-
-            Text(
-                text = stringResource(R.string.player_volume_label),
-                style = MaterialTheme.typography.bodySmall
-            )
-            Slider(
-                value = playerUiState.volume.coerceIn(0f, 1f),
-                onValueChange = onVolumeChange,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Divider()
-
-            Text(
-                text = stringResource(R.string.sleep_timer_title),
-                style = MaterialTheme.typography.titleSmall
-            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedButton(
-                    onClick = { onStartSleepTimer(15) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(text = stringResource(R.string.sleep_timer_15m))
-                }
-                OutlinedButton(
-                    onClick = { onStartSleepTimer(30) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(text = stringResource(R.string.sleep_timer_30m))
-                }
-                OutlinedButton(
-                    onClick = { onStartSleepTimer(60) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(text = stringResource(R.string.sleep_timer_60m))
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = customSleepMinutes,
-                    onValueChange = onCustomSleepMinutesChange,
-                    modifier = Modifier.weight(1f),
-                    label = { Text(stringResource(R.string.sleep_timer_custom_minutes)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                Icon(
+                    imageVector = if (playerUiState.volume <= 0.01f) {
+                        Icons.Filled.VolumeOff
+                    } else {
+                        Icons.Filled.VolumeUp
+                    },
+                    contentDescription = stringResource(R.string.player_volume_label),
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Button(
-                    onClick = {
-                        onStartSleepTimer(customSleepMinutes.toIntOrNull() ?: 0)
-                    }
-                ) {
-                    Text(text = stringResource(R.string.sleep_timer_start))
-                }
-            }
-
-            val timerText = if (playerUiState.isSleepTimerRunning) {
-                stringResource(
-                    R.string.sleep_timer_running,
-                    formatCountdown(playerUiState.sleepTimerRemainingMs)
+                Slider(
+                    value = playerUiState.volume.coerceIn(0f, 1f),
+                    onValueChange = onVolumeChange,
+                    modifier = Modifier.weight(1f)
                 )
-            } else {
-                stringResource(R.string.sleep_timer_not_set)
             }
-            Text(text = timerText, style = MaterialTheme.typography.bodySmall)
 
-            OutlinedButton(
-                onClick = onCancelSleepTimer,
-                enabled = playerUiState.isSleepTimerRunning,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(text = stringResource(R.string.sleep_timer_cancel))
+            if (playerUiState.isSleepTimerRunning) {
+                Text(
+                    text = stringResource(
+                        R.string.sleep_timer_running,
+                        formatCountdown(playerUiState.sleepTimerRemainingMs)
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }
 }
 
+/** 原生全屏：隐藏状态栏/导航栏并横屏，退出时全部还原 */
 @Composable
-private fun VideoSection(
+private fun FullscreenPlayer(
+    modifier: Modifier = Modifier,
     playerUiState: PlayerUiState,
     playerForUi: Player?,
-    modifier: Modifier = Modifier
+    seekSliderProgress: Float,
+    onSeekValueChange: (Float) -> Unit,
+    onSeekFinished: () -> Unit,
+    onPrevious: () -> Unit,
+    onTogglePlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onExit: () -> Unit
+) {
+    FullscreenWindowEffect(landscape = playerUiState.canShowVideo)
+
+    Box(modifier = modifier.background(Color.Black)) {
+        VideoSurface(
+            modifier = Modifier.fillMaxSize(),
+            playerUiState = playerUiState,
+            playerForUi = playerForUi,
+            onTogglePlayPause = onTogglePlayPause
+        )
+
+        CompactIconButton(
+            icon = Icons.Filled.FullscreenExit,
+            contentDescription = stringResource(R.string.exit_fullscreen),
+            onClick = onExit,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp),
+            tint = Color.White,
+            buttonSize = 44.dp,
+            iconSize = 24.dp
+        )
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = 0.45f))
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Slider(
+                value = seekSliderProgress,
+                onValueChange = onSeekValueChange,
+                onValueChangeFinished = onSeekFinished,
+                enabled = playerUiState.connected,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = formatDuration(playerUiState.positionMs),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White
+                )
+                Text(
+                    text = formatDuration(playerUiState.durationMs),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CompactIconButton(
+                    icon = Icons.Filled.SkipPrevious,
+                    contentDescription = stringResource(R.string.previous_track),
+                    onClick = onPrevious,
+                    enabled = playerUiState.canSkipPrevious,
+                    tint = Color.White,
+                    buttonSize = 44.dp,
+                    iconSize = 22.dp
+                )
+                FilledIconButton(
+                    onClick = onTogglePlayPause,
+                    enabled = playerUiState.connected,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = if (playerUiState.isPlaying) {
+                            Icons.Filled.Pause
+                        } else {
+                            Icons.Filled.PlayArrow
+                        },
+                        contentDescription = if (playerUiState.isPlaying) {
+                            stringResource(R.string.pause_playback)
+                        } else {
+                            stringResource(R.string.start_playback)
+                        },
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+                CompactIconButton(
+                    icon = Icons.Filled.SkipNext,
+                    contentDescription = stringResource(R.string.next_track),
+                    onClick = onNext,
+                    enabled = playerUiState.canSkipNext,
+                    tint = Color.White,
+                    buttonSize = 44.dp,
+                    iconSize = 22.dp
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 用安卓原生 API 进全屏：隐藏系统栏 + 横屏。
+ * 离开组合时把系统栏和方向还原，避免影响其他页面。
+ */
+@Composable
+private fun FullscreenWindowEffect(landscape: Boolean) {
+    val view = LocalView.current
+    val context = LocalContext.current
+
+    DisposableEffect(landscape) {
+        val activity = context.findActivity()
+        val window = activity?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+
+        controller?.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller?.hide(WindowInsetsCompat.Type.systemBars())
+
+        if (landscape) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+
+        onDispose {
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+            if (landscape) {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
+    }
+}
+
+private fun Context.findActivity(): Activity? {
+    var current: Context? = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return null
+}
+
+/** 内置视频画面：点画面即播放/暂停，暂停时叠一个大播放键 */
+@OptIn(UnstableApi::class)
+@Composable
+private fun VideoSurface(
+    modifier: Modifier = Modifier,
+    playerUiState: PlayerUiState,
+    playerForUi: Player?,
+    onTogglePlayPause: () -> Unit
 ) {
     Box(
         modifier = modifier
-            .aspectRatio(16f / 9f)
             .clip(RoundedCornerShape(12.dp))
             .background(Color.Black),
         contentAlignment = Alignment.Center
@@ -583,150 +928,149 @@ private fun VideoSection(
                         useController = false
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                         setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-                        player = playerForUi
                     }
                 },
                 update = { view ->
                     view.player = playerForUi
+                    // 只在播放时保持屏幕常亮，暂停后交还给系统
+                    view.keepScreenOn = playerForUi.isPlaying
+                },
+                onRelease = { view ->
+                    view.player = null
                 }
             )
         } else {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Icon(
-                    painter = painterResource(id = android.R.drawable.ic_media_play),
+                    imageVector = Icons.Filled.LibraryMusic,
                     contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp)
+                    tint = Color.White.copy(alpha = 0.75f),
+                    modifier = Modifier.size(56.dp)
                 )
                 Text(
-                    text = stringResource(R.string.video_not_available),
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodySmall
+                    text = stringResource(
+                        if (playerUiState.canShowVideo) {
+                            R.string.video_not_available
+                        } else {
+                            R.string.audio_only_hint
+                        }
+                    ),
+                    color = Color.White.copy(alpha = 0.75f),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+
+        // 覆盖一层点击区，保证 PlayerView 不会吃掉点击事件
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clickable(onClick = onTogglePlayPause)
+        )
+
+        if (playerUiState.canShowVideo && !playerUiState.isPlaying) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.45f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = stringResource(R.string.start_playback),
+                    tint = Color.White,
+                    modifier = Modifier.size(38.dp)
                 )
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DirectorySection(
-    directoryConfig: DirectoryConfig,
-    isExpanded: Boolean,
-    isSyncing: Boolean,
-    onToggleExpand: () -> Unit,
-    onPickSource: () -> Unit,
-    onPickOutput: () -> Unit,
-    onRefresh: () -> Unit
+private fun SleepTimerDialog(
+    playerUiState: PlayerUiState,
+    customMinutes: String,
+    onCustomMinutesChange: (String) -> Unit,
+    onStartTimer: (Int) -> Unit,
+    onCancelTimer: () -> Unit,
+    onDismiss: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(text = stringResource(R.string.directory_panel_title))
-                OutlinedButton(onClick = onToggleExpand) {
-                    Text(
-                        text = if (isExpanded) {
-                            stringResource(R.string.collapse_directory)
-                        } else {
-                            stringResource(R.string.expand_directory)
-                        }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = stringResource(R.string.sleep_timer_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(15, 30, 60).forEach { minutes ->
+                        FilterChip(
+                            selected = false,
+                            onClick = { onStartTimer(minutes) },
+                            label = { Text(text = "$minutes 分钟") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = customMinutes,
+                        onValueChange = onCustomMinutesChange,
+                        modifier = Modifier.weight(1f),
+                        label = { Text(stringResource(R.string.sleep_timer_custom_minutes)) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
+                    FilledIconButton(
+                        onClick = { onStartTimer(customMinutes.toIntOrNull() ?: 0) },
+                        enabled = (customMinutes.toIntOrNull() ?: 0) > 0
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = stringResource(R.string.sleep_timer_start),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
-            }
 
-            Text(
-                text = stringResource(
-                    R.string.source_directory_summary,
-                    directoryConfig.sourceTreeUri ?: stringResource(R.string.directory_not_selected)
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                text = stringResource(
-                    R.string.output_directory_summary,
-                    directoryConfig.outputTreeUri ?: stringResource(R.string.directory_not_selected)
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodySmall
-            )
-
-            if (isExpanded) {
-                Button(onClick = onPickSource, modifier = Modifier.fillMaxWidth()) {
-                    Text(text = stringResource(R.string.select_source_directory))
-                }
-                Button(onClick = onPickOutput, modifier = Modifier.fillMaxWidth()) {
-                    Text(text = stringResource(R.string.select_output_directory))
-                }
-                OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
-                    val text = if (isSyncing) {
-                        stringResource(R.string.refreshing_library)
+                Text(
+                    text = if (playerUiState.isSleepTimerRunning) {
+                        stringResource(
+                            R.string.sleep_timer_running,
+                            formatCountdown(playerUiState.sleepTimerRemainingMs)
+                        )
                     } else {
-                        stringResource(R.string.refresh_library)
-                    }
-                    Text(text = text)
+                        stringResource(R.string.sleep_timer_not_set)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(R.string.dismiss_message))
+            }
+        },
+        dismissButton = {
+            if (playerUiState.isSleepTimerRunning) {
+                TextButton(onClick = onCancelTimer) {
+                    Text(text = stringResource(R.string.sleep_timer_cancel))
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun MediaListItem(
-    item: LibraryMediaItem,
-    category: LibraryCategory,
-    onPlay: () -> Unit,
-    onDelete: () -> Unit,
-    onExtractMp3: () -> Unit,
-    onExtractOriginal: () -> Unit
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(text = item.displayName, style = MaterialTheme.typography.titleSmall)
-            Text(
-                text = stringResource(
-                    R.string.file_meta_line,
-                    formatFileSize(item.sizeBytes),
-                    formatDuration(item.durationMs)
-                ),
-                style = MaterialTheme.typography.bodySmall
-            )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onPlay, modifier = Modifier.weight(1f)) {
-                    Text(text = stringResource(R.string.play_file))
-                }
-                OutlinedButton(onClick = onDelete, modifier = Modifier.weight(1f)) {
-                    Text(text = stringResource(R.string.delete_file))
-                }
-            }
-
-            if (category == LibraryCategory.SOURCE) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onExtractMp3, modifier = Modifier.weight(1f)) {
-                        Text(text = stringResource(R.string.extract_to_mp3))
-                    }
-                    Button(onClick = onExtractOriginal, modifier = Modifier.weight(1f)) {
-                        Text(text = stringResource(R.string.extract_original_audio))
-                    }
-                }
-            }
-        }
-    }
+    )
 }
 
 @Composable
@@ -738,24 +1082,101 @@ private fun MessageSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = message, modifier = Modifier.weight(1f))
-            OutlinedButton(onClick = onDismiss) {
-                Text(text = stringResource(R.string.dismiss_message))
-            }
+            Text(
+                text = message,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall
+            )
+            CompactIconButton(
+                icon = Icons.Filled.Close,
+                contentDescription = stringResource(R.string.dismiss_message),
+                onClick = onDismiss
+            )
         }
     }
 }
 
+/**
+ * 统一的紧凑图标按钮。
+ * Material3 的 IconButton 有 48dp 最小触控区，列表里几个并排会挤掉文件名，
+ * 这里用 38dp 的圆形点击区换取密度，图标语义通过 contentDescription 保留。
+ */
 @Composable
-private fun repeatModeLabel(mode: PlaybackRepeatMode): String {
+private fun CompactIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    tint: Color = LocalContentColor.current,
+    modifier: Modifier = Modifier,
+    buttonSize: Dp = 38.dp,
+    iconSize: Dp = 20.dp
+) {
+    Box(
+        modifier = modifier
+            .size(buttonSize)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(iconSize),
+            tint = if (enabled) tint else tint.copy(alpha = 0.38f)
+        )
+    }
+}
+
+private fun repeatModeIcon(mode: PlaybackRepeatMode): ImageVector {
     return when (mode) {
-        PlaybackRepeatMode.OFF -> stringResource(R.string.repeat_mode_off)
-        PlaybackRepeatMode.ONE -> stringResource(R.string.repeat_mode_one)
-        PlaybackRepeatMode.ALL -> stringResource(R.string.repeat_mode_all)
+        PlaybackRepeatMode.ONE -> Icons.Filled.RepeatOne
+        PlaybackRepeatMode.OFF, PlaybackRepeatMode.ALL -> Icons.Filled.Repeat
+    }
+}
+
+/**
+ * 空列表提示。以前不管什么原因都显示“请先授权”，
+ * 用户授权了空目录后会以为没读到，这里按扫描结果分别说明。
+ */
+@Composable
+private fun libraryEmptyMessage(
+    category: LibraryCategory,
+    scanState: LibraryScanState
+): String {
+    val unnamed = stringResource(R.string.directory_unnamed)
+    return when (scanState) {
+        LibraryScanState.NoDirectory -> stringResource(
+            if (category == LibraryCategory.SOURCE) {
+                R.string.source_scan_no_directory
+            } else {
+                R.string.output_scan_no_directory
+            }
+        )
+
+        is LibraryScanState.Failed -> stringResource(R.string.scan_failed_hint)
+
+        is LibraryScanState.Ready -> {
+            val name = scanState.directoryName ?: unnamed
+            when {
+                scanState.fileCount == 0 -> stringResource(R.string.scan_empty_folder, name)
+                scanState.itemCount == 0 && category == LibraryCategory.SOURCE ->
+                    stringResource(R.string.scan_no_video, name, scanState.fileCount)
+                scanState.itemCount == 0 ->
+                    stringResource(R.string.scan_no_audio, name, scanState.fileCount)
+                else -> stringResource(
+                    if (category == LibraryCategory.SOURCE) {
+                        R.string.source_list_empty
+                    } else {
+                        R.string.extracted_list_empty
+                    }
+                )
+            }
+        }
     }
 }
 

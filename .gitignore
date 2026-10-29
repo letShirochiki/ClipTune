@@ -40,3 +40,8 @@ captures/
 skills/*
 !skills/cliptune-change-guard/
 !skills/cliptune-change-guard/**
+!skills/cliptune-android-dev/
+!skills/cliptune-android-dev/**
+
+# WorkBuddy 本地项目记忆，只留在本机
+.workbuddy/

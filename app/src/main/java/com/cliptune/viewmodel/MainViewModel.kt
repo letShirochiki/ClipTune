@@ -25,6 +25,7 @@ import com.cliptune.model.ConversionState
 import com.cliptune.model.DirectoryConfig
 import com.cliptune.model.LibraryCategory
 import com.cliptune.model.LibraryMediaItem
+import com.cliptune.model.LibraryScanState
 import com.cliptune.model.MediaKind
 import com.cliptune.model.PlaybackRepeatMode
 import com.cliptune.model.PlayerUiState
@@ -61,6 +62,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _extractedItems = MutableStateFlow<List<LibraryMediaItem>>(emptyList())
     val extractedItems: StateFlow<List<LibraryMediaItem>> = _extractedItems.asStateFlow()
+
+    /** 最近一次原始目录扫描的结果，用于区分“没选目录 / 目录空 / 没有视频 / 授权失效” */
+    private val _sourceScanState = MutableStateFlow<LibraryScanState>(LibraryScanState.NoDirectory)
+    val sourceScanState: StateFlow<LibraryScanState> = _sourceScanState.asStateFlow()
+
+    /** 最近一次输出目录扫描的结果 */
+    private val _outputScanState = MutableStateFlow<LibraryScanState>(LibraryScanState.NoDirectory)
+    val outputScanState: StateFlow<LibraryScanState> = _outputScanState.asStateFlow()
 
     private val _conversionState = MutableStateFlow<ConversionState>(ConversionState.Idle)
     val conversionState: StateFlow<ConversionState> = _conversionState.asStateFlow()
@@ -515,17 +524,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun refreshSourceLibrary(sourceTreeUri: String?) {
-        mediaLibraryRepository.refreshSourceLibrary(sourceTreeUri)
-            .onFailure {
-                _uiMessage.value = it.message ?: "扫描原始目录失败"
-            }
+        _sourceScanState.value = mediaLibraryRepository.scanSourceLibrary(sourceTreeUri)
     }
 
     private suspend fun refreshOutputLibrary(outputTreeUri: String?) {
-        mediaLibraryRepository.refreshOutputLibrary(outputTreeUri)
-            .onFailure {
-                _uiMessage.value = it.message ?: "扫描输出目录失败"
-            }
+        _outputScanState.value = mediaLibraryRepository.scanOutputLibrary(outputTreeUri)
     }
 
     private fun startPositionPolling() {
@@ -565,10 +568,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ?: ""
         val canShowVideo = activeCategory == LibraryCategory.SOURCE &&
             mediaController.currentMediaItem != null
+        val currentUri = mediaController.currentMediaItem?.mediaId.orEmpty()
 
         _playerUiState.value = PlayerUiState(
             connected = true,
             currentTitle = title,
+            currentMediaUri = currentUri,
             isPlaying = mediaController.isPlaying,
             positionMs = if (duration > 0) position.coerceAtMost(duration) else position,
             durationMs = duration,

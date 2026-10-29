@@ -6,7 +6,9 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.cliptune.data.db.MediaItemDao
 import com.cliptune.data.db.MediaItemEntity
+import com.cliptune.model.DirectoryDisplay
 import com.cliptune.model.LibraryMediaItem
+import com.cliptune.model.LibraryScanState
 import com.cliptune.model.MediaKind
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -27,57 +29,96 @@ class MediaLibraryRepository(
         ).map { entities -> entities.map { it.toModel() } }
     }
 
-    suspend fun refreshSourceLibrary(sourceTreeUri: String?): Result<Int> = runCatching {
-        val sourceKinds = listOf(MediaKind.SOURCE_VIDEO.name)
+    /**
+     * 扫描原始视频目录。
+     *
+     * 失败不再静默返回 0：授权失效、目录被删、没有读权限都会返回 [LibraryScanState.Failed]，
+     * 这样界面才能区分“目录里确实没有视频”和“根本没读到目录”。
+     */
+    suspend fun scanSourceLibrary(sourceTreeUri: String?): LibraryScanState {
+        val directoryName = DirectoryDisplay.nameOf(sourceTreeUri)
         if (sourceTreeUri.isNullOrBlank()) {
-            mediaItemDao.deleteByKinds(sourceKinds)
-            return@runCatching 0
+            mediaItemDao.deleteByKinds(SOURCE_KINDS)
+            return LibraryScanState.NoDirectory
         }
 
-        val root = DocumentFile.fromTreeUri(context, Uri.parse(sourceTreeUri))
-            ?: throw IllegalStateException("无法访问原始目录")
-        val files = collectFiles(root).filter { isSourceVideo(it) }
-        val now = System.currentTimeMillis()
-        val entities = files.mapNotNull { file ->
-            file.toEntity(
-                mediaKind = MediaKind.SOURCE_VIDEO,
-                lastScannedAt = now,
-                sourceTag = SOURCE_TAG_SCAN
-            )
-        }
+        return try {
+            val root = openTree(sourceTreeUri, "原始")
+            val files = collectFiles(root)
+            val now = System.currentTimeMillis()
+            val entities = files.filter { isSourceVideo(it) }.mapNotNull { file ->
+                file.toEntity(
+                    mediaKind = MediaKind.SOURCE_VIDEO,
+                    lastScannedAt = now,
+                    sourceTag = SOURCE_TAG_SCAN
+                )
+            }
 
-        mediaItemDao.deleteByKinds(sourceKinds)
-        if (entities.isNotEmpty()) {
-            mediaItemDao.upsertAll(entities)
+            mediaItemDao.deleteByKinds(SOURCE_KINDS)
+            if (entities.isNotEmpty()) {
+                mediaItemDao.upsertAll(entities)
+            }
+            LibraryScanState.Ready(directoryName, entities.size, files.size)
+        } catch (e: DirectoryUnreadableException) {
+            LibraryScanState.Failed(directoryName, e.message.orEmpty(), e.permissionLost)
+        } catch (e: SecurityException) {
+            LibraryScanState.Failed(directoryName, "没有该目录的访问权限，请重新选择目录", true)
+        } catch (e: Exception) {
+            LibraryScanState.Failed(directoryName, e.message ?: "扫描原始目录失败", false)
         }
-        entities.size
     }
 
-    suspend fun refreshOutputLibrary(outputTreeUri: String?): Result<Int> = runCatching {
-        val outputKinds = listOf(MediaKind.EXTRACTED_MP3.name, MediaKind.EXTRACTED_ORIGINAL.name)
+    /** 扫描提取输出目录，语义与 [scanSourceLibrary] 一致。 */
+    suspend fun scanOutputLibrary(outputTreeUri: String?): LibraryScanState {
+        val directoryName = DirectoryDisplay.nameOf(outputTreeUri)
         if (outputTreeUri.isNullOrBlank()) {
-            mediaItemDao.deleteByKinds(outputKinds)
-            return@runCatching 0
+            mediaItemDao.deleteByKinds(OUTPUT_KINDS)
+            return LibraryScanState.NoDirectory
         }
 
-        val root = DocumentFile.fromTreeUri(context, Uri.parse(outputTreeUri))
-            ?: throw IllegalStateException("无法访问输出目录")
-        val files = collectFiles(root)
-        val now = System.currentTimeMillis()
-        val entities = files.mapNotNull { file ->
-            val kind = classifyOutputKind(file) ?: return@mapNotNull null
-            file.toEntity(
-                mediaKind = kind,
-                lastScannedAt = now,
-                sourceTag = SOURCE_TAG_SCAN
+        return try {
+            val root = openTree(outputTreeUri, "输出")
+            val files = collectFiles(root)
+            val now = System.currentTimeMillis()
+            val entities = files.mapNotNull { file ->
+                val kind = classifyOutputKind(file) ?: return@mapNotNull null
+                file.toEntity(
+                    mediaKind = kind,
+                    lastScannedAt = now,
+                    sourceTag = SOURCE_TAG_SCAN
+                )
+            }
+
+            mediaItemDao.deleteByKinds(OUTPUT_KINDS)
+            if (entities.isNotEmpty()) {
+                mediaItemDao.upsertAll(entities)
+            }
+            LibraryScanState.Ready(directoryName, entities.size, files.size)
+        } catch (e: DirectoryUnreadableException) {
+            LibraryScanState.Failed(directoryName, e.message.orEmpty(), e.permissionLost)
+        } catch (e: SecurityException) {
+            LibraryScanState.Failed(directoryName, "没有该目录的访问权限，请重新选择目录", true)
+        } catch (e: Exception) {
+            LibraryScanState.Failed(directoryName, e.message ?: "扫描输出目录失败", false)
+        }
+    }
+
+    /**
+     * 打开已授权目录。SAF 授权失效时 [DocumentFile.fromTreeUri] 不会抛异常也不会返回 null，
+     * 只是 exists()/canRead() 变成 false，这里显式检查，避免被当成“空目录”。
+     */
+    private fun openTree(treeUri: String, label: String): DocumentFile {
+        val root = DocumentFile.fromTreeUri(context, Uri.parse(treeUri))
+            ?: throw DirectoryUnreadableException("无法解析${label}目录的授权", true)
+        val readable = runCatching { root.exists() && root.canRead() }
+            .getOrElse { throw DirectoryUnreadableException("${label}目录没有读取权限", true) }
+        if (!readable) {
+            throw DirectoryUnreadableException(
+                "${label}目录不存在或授权已失效，请重新选择目录",
+                true
             )
         }
-
-        mediaItemDao.deleteByKinds(outputKinds)
-        if (entities.isNotEmpty()) {
-            mediaItemDao.upsertAll(entities)
-        }
-        entities.size
+        return root
     }
 
     suspend fun upsertExtractedRecord(
@@ -115,14 +156,13 @@ class MediaLibraryRepository(
         val output = mutableListOf<DocumentFile>()
 
         fun walk(node: DocumentFile) {
-            if (!node.exists()) return
-            if (node.isFile) {
-                output += node
+            if (!node.isDirectory) {
+                if (node.isFile) output += node
                 return
             }
-            if (node.isDirectory) {
-                node.listFiles().forEach { child -> walk(child) }
-            }
+            // 单个子目录读不到不应该中断整次扫描（例如子目录授权异常）
+            val children = runCatching { node.listFiles() }.getOrDefault(emptyArray())
+            children.forEach { child -> runCatching { walk(child) } }
         }
 
         walk(root)
@@ -192,6 +232,12 @@ class MediaLibraryRepository(
         private const val SOURCE_TAG_SCAN = "scan"
         private const val SOURCE_TAG_EXTRACT = "extract"
 
+        private val SOURCE_KINDS = listOf(MediaKind.SOURCE_VIDEO.name)
+        private val OUTPUT_KINDS = listOf(
+            MediaKind.EXTRACTED_MP3.name,
+            MediaKind.EXTRACTED_ORIGINAL.name
+        )
+
         private val VIDEO_EXTENSIONS = setOf(
             "mp4", "mov", "mkv", "avi", "webm", "3gp", "m4v", "ts"
         )
@@ -201,3 +247,9 @@ class MediaLibraryRepository(
         )
     }
 }
+
+/** 目录本身打不开（授权失效、被删除、无权限），与“目录能开但没内容”区分开 */
+private class DirectoryUnreadableException(
+    message: String,
+    val permissionLost: Boolean
+) : IllegalStateException(message)

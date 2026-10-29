@@ -2,8 +2,8 @@
 buildscript {
     // Defines global properties for the project.
     ext {
-        kotlin_version = "1.9.10"
-        ksp_version = "1.9.10-1.0.13"
+        kotlin_version = '2.2.10'
+        ksp_version = '2.3.6'
     }
     // Configures the repositories for the build script itself.
     repositories {
@@ -14,7 +14,8 @@ buildscript {
     // Configures the dependencies for the build script.
     dependencies {
         // The Android Gradle Plugin for building Android applications.
-        classpath 'com.android.tools.build:gradle:8.13.2'
+        classpath 'com.android.tools.build:gradle:9.4.1'
+        classpath 'org.jetbrains.kotlin:compose-compiler-gradle-plugin:2.2.10'
         // The Kotlin Gradle Plugin for compiling Kotlin code.
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
         classpath "com.google.devtools.ksp:symbol-processing-gradle-plugin:$ksp_version"

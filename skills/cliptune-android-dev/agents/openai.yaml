@@ -1,0 +1,4 @@
+interface:
+  display_name: "ClipTune 安卓开发"
+  short_description: "在 ClipTune 中进行 Kotlin/Compose/Media3 开发与排障"
+  default_prompt: "使用 $cliptune-android-dev 完成此仓库的功能开发、问题排查与构建验证。"
