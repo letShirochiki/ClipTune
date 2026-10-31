@@ -31,7 +31,7 @@
     <string name="scan_no_audio">「%1$s」里扫到 %2$d 个文件，但没有可识别的音频（mp3 / m4a / wav / flac / aac / ogg …）。</string>
     <string name="scan_failed_hint">目录读取失败，请看上方「目录设置」里的提示，或重新选择一次目录。</string>
     <string name="scan_status_failed">⚠ %1$s</string>
-    <string name="directory_picker_scope_hint">安卓 11 起，系统不允许直接授权「内部存储」根目录和「Download」根目录（会提示 Can’t use this folder）。请进到具体子文件夹，比如 Movies、DCIM/Camera、Download/子文件夹，再点「使用此文件夹」。</string>
+    <string name="directory_picker_scope_hint">安卓 11 起不能授权「内部存储」根目录、「Download」根目录和整个「Android」目录；Android/data、Android/obb 在安卓 16 上连入口都不显示。请选具体子文件夹：Movies、DCIM/Camera、Download/子文件夹、Android/media/包名。</string>
     <string name="file_meta_line">大小：%1$s  时长：%2$s</string>
 
     <string name="play_file">播放</string>
